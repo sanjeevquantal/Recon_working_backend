@@ -1,0 +1,112 @@
+// src/qa.test.tsx
+import React from 'react';
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { vi, describe, it, expect, beforeEach } from 'vitest';
+
+//
+//  Mocks
+//
+const navigateMock = vi.fn();
+vi.mock('react-router-dom', () => ({
+  useNavigate: () => navigateMock,
+}));
+
+// We'll swap out these values before each test.
+const authStub = {
+  isAuthenticated: false,
+  isLoading: false,
+  login: vi.fn(),
+  loginWithGoogle: vi.fn(),
+  loginWithMicrosoft: vi.fn(),
+};
+vi.mock('@/contexts/AuthContext', () => ({
+  useAuth: () => authStub,
+}));
+
+//
+//  Import components AFTER mocks
+//
+import { cn } from './lib/utils';
+import Index from './pages/Index';
+import Login from './pages/Login';
+import NotFound from './pages/NotFound';
+
+describe('QA Test Suite', () => {
+  beforeEach(() => {
+    // Reset mocks
+    navigateMock.mockClear();
+    authStub.login.mockClear();
+    authStub.loginWithGoogle.mockClear();
+    authStub.loginWithMicrosoft.mockClear();
+  });
+
+  it('cn(...) merges and deduplicates class names', () => {
+    // basic concatenation
+    expect(cn('foo', 'bar')).toBe('foo bar');
+    // twMerge: later p-4 overrides p-2
+    expect(cn('p-2', 'p-4')).toBe('p-4');
+    // duplicates removed
+    expect(cn('a', 'a b')).toBe('a b');
+  });
+
+  it('<Index /> navigates to /login when not authenticated', async () => {
+    authStub.isLoading = false;
+    authStub.isAuthenticated = false;
+    render(<Index />);
+    // useEffect runs -> navigate('/login')
+    await waitFor(() => expect(navigateMock).toHaveBeenCalledWith('/login'));
+  });
+
+  it('<Index /> navigates to /dashboard when authenticated', async () => {
+    authStub.isLoading = false;
+    authStub.isAuthenticated = true;
+    render(<Index />);
+    await waitFor(() => expect(navigateMock).toHaveBeenCalledWith('/dashboard'));
+  });
+
+  it('<Index /> does not navigate while loading', () => {
+    authStub.isLoading = true;
+    authStub.isAuthenticated = false;
+    render(<Index />);
+    expect(navigateMock).not.toHaveBeenCalled();
+    // spinner is present
+    expect(screen.getByRole('status')).toBeInTheDocument();
+  });
+
+  it('<Login /> calls login() and then navigates on form submit', async () => {
+    authStub.isLoading = false;
+    render(<Login />);
+
+    // fill form
+    const emailInput = screen.getByLabelText(/email/i);
+    const passInput  = screen.getByLabelText(/password/i);
+    await userEvent.type(emailInput, 'test@example.com');
+    await userEvent.type(passInput, 'secret123');
+
+    // submit
+    const btn = screen.getByRole('button', { name: /^sign in$/i });
+    await userEvent.click(btn);
+
+    // login should be called
+    await waitFor(() => {
+      expect(authStub.login).toHaveBeenCalledWith('test@example.com', 'secret123');
+    });
+    // then navigation
+    expect(navigateMock).toHaveBeenCalledWith('/dashboard');
+  });
+
+  it('<NotFound /> Go Back button calls navigate(-1)', async () => {
+    render(<NotFound />);
+    const goBack = screen.getByRole('button', { name: /go back/i });
+    await userEvent.click(goBack);
+    expect(navigateMock).toHaveBeenCalledWith(-1);
+  });
+
+  it('<NotFound /> Return to Dashboard calls navigate("/dashboard")', async () => {
+    render(<NotFound />);
+    const retDash = screen.getByRole('button', { name: /return to dashboard/i });
+    await userEvent.click(retDash);
+    expect(navigateMock).toHaveBeenCalledWith('/dashboard');
+  });
+});
